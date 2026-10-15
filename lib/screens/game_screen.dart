@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../core/game_controller.dart';
@@ -73,36 +75,64 @@ class GameScreen extends StatelessWidget {
                   )
                 : SafeArea(
                     child: LayoutBuilder(builder: (context, constraints) {
-                      final compact = constraints.maxHeight < 660;
                       return Column(
                         children: [
-                          _PlayerStrip(state: state),
-                          if (controller.lastMessage != null)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Text(controller.lastMessage!,
-                                  style:
-                                      Theme.of(context).textTheme.labelLarge),
-                            ),
+                          _PlayerCorners(
+                            state: state,
+                            controller: controller,
+                            teams: const [Team.green, Team.yellow],
+                          ),
                           Expanded(
                             child: Center(
                               child: ConstrainedBox(
                                 constraints: BoxConstraints(
-                                    maxWidth: compact ? 520 : 600,
+                                    maxWidth: 600,
                                     maxHeight: constraints.maxHeight),
                                 child: Padding(
-                                  padding: EdgeInsets.all(compact ? 8 : 14),
-                                  child: LudoBoard(
-                                    state: state,
-                                    legalTokens: controller.legalTokens,
-                                    displayTokens: controller.visualTokens,
-                                    onTokenTap: controller.moveToken,
+                                  padding: const EdgeInsets.all(8),
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .surface,
+                                      borderRadius: BorderRadius.circular(22),
+                                      border: Border.all(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outlineVariant
+                                            .withValues(alpha: .55),
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black
+                                              .withValues(alpha: .12),
+                                          blurRadius: 20,
+                                          offset: const Offset(0, 8),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(4),
+                                      child: LudoBoard(
+                                        state: state,
+                                        legalTokens: controller.legalTokens,
+                                        displayTokens:
+                                            controller.visualTokens,
+                                        onTokenTap: controller.moveToken,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                          _DicePanel(controller: controller, compact: compact),
+                          _TurnMessage(
+                              state: state, controller: controller),
+                          _PlayerCorners(
+                            state: state,
+                            controller: controller,
+                            teams: const [Team.red, Team.blue],
+                          ),
                         ],
                       );
                     }),
@@ -214,128 +244,330 @@ class GameScreen extends StatelessWidget {
   }
 }
 
-class _PlayerStrip extends StatelessWidget {
-  const _PlayerStrip({required this.state});
+class _PlayerCorners extends StatelessWidget {
+  const _PlayerCorners({
+    required this.state,
+    required this.controller,
+    required this.teams,
+  });
+
   final GameState state;
+  final GameController controller;
+  final List<Team> teams;
 
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(10, 7, 10, 3),
         child: Row(
           children: [
-            for (var i = 0; i < state.players.length; i++)
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: Color(teamColors[state.players[i].team]!.value)
-                      .withValues(
-                          alpha: i == state.currentPlayerIndex ? .2 : .08),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: Color(teamColors[state.players[i].team]!.value),
-                    width: i == state.currentPlayerIndex ? 2 : 1,
-                  ),
+            for (var i = 0; i < teams.length; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(
+                child: _PlayerCorner(
+                  key: ValueKey(teams[i]),
+                  player: state.players
+                      .where((player) => player.team == teams[i])
+                      .firstOrNull,
+                  state: state,
+                  controller: controller,
                 ),
-                child:
-                    Text('${state.players[i].avatar} ${state.players[i].name}'),
               ),
+            ],
           ],
         ),
       );
 }
 
-class _DicePanel extends StatelessWidget {
-  const _DicePanel({required this.controller, required this.compact});
+class _PlayerCorner extends StatefulWidget {
+  const _PlayerCorner({
+    super.key,
+    required this.player,
+    required this.state,
+    required this.controller,
+  });
+
+  final Player? player;
+  final GameState state;
   final GameController controller;
-  final bool compact;
+
+  @override
+  State<_PlayerCorner> createState() => _PlayerCornerState();
+}
+
+class _PlayerCornerState extends State<_PlayerCorner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _spin = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 820),
+  );
+
+  @override
+  void didUpdateWidget(covariant _PlayerCorner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncSpin();
+  }
+
+  void _syncSpin() {
+    final player = widget.player;
+    final shouldSpin = player != null &&
+        player.team == widget.state.currentPlayer.team &&
+        widget.controller.rolling;
+    if (shouldSpin && !_spin.isAnimating) {
+      _spin.forward(from: 0);
+    } else if (!shouldSpin && _spin.isAnimating) {
+      _spin.stop();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncSpin();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final state = controller.state!;
-    final teamColor = Color(teamColors[state.currentPlayer.team]!.value);
-    final hasRolled = controller.rolled != null;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 4, 16, compact ? 12 : 20),
+    final player = widget.player;
+    if (player == null) return const SizedBox(height: 64);
+
+    final color = Color(teamColors[player.team]!.value);
+    final isCurrent = player.team == widget.state.currentPlayer.team;
+    final canRoll = isCurrent &&
+        !player.isAi &&
+        !widget.state.isPaused &&
+        !widget.controller.busy &&
+        !widget.controller.rolling &&
+        widget.controller.rolled == null &&
+        !widget.state.isComplete;
+    final face = isCurrent ? widget.controller.rolled : null;
+    final scheme = Theme.of(context).colorScheme;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOut,
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: isCurrent
+            ? color.withValues(alpha: scheme.brightness == Brightness.dark
+                ? .22
+                : .12)
+            : scheme.surfaceContainerHighest.withValues(alpha: .5),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: color.withValues(alpha: isCurrent ? .95 : .35),
+          width: isCurrent ? 2 : 1,
+        ),
+        boxShadow: isCurrent
+            ? [
+                BoxShadow(
+                  color: color.withValues(alpha: .16),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
+      ),
       child: Row(
         children: [
+          Text(player.avatar, style: const TextStyle(fontSize: 24)),
+          const SizedBox(width: 7),
           Expanded(
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("${state.currentPlayer.name}'s turn",
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-                Text(state.currentPlayer.isAi
-                    ? 'Thinking…'
-                    : (hasRolled
-                        ? 'Choose a highlighted token'
-                        : 'Roll the dice')),
+                Text(
+                  player.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isCurrent
+                      ? (widget.controller.rolling
+                          ? 'ROLLING'
+                          : face != null
+                              ? 'MOVE A TOKEN'
+                              : 'YOUR TURN')
+                      : player.isAi
+                          ? 'COMPUTER'
+                          : teamNames[player.team]!.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: isCurrent ? color : scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: .7,
+                      ),
+                ),
               ],
             ),
           ),
+          const SizedBox(width: 5),
           Semantics(
-            button: true,
-            label: hasRolled ? 'Dice shows ${controller.rolled}' : 'Roll dice',
-            child: InkWell(
-              onTap: controller.rollDice,
-              borderRadius: BorderRadius.circular(16),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: compact ? 54 : 62,
-                height: compact ? 54 : 62,
-                margin: const EdgeInsets.only(right: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: teamColor, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                        color: teamColor.withValues(alpha: .18),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3))
-                  ],
-                ),
-                child: Center(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 240),
-                    transitionBuilder: (child, animation) => RotationTransition(
-                      turns:
-                          Tween<double>(begin: -.12, end: 0).animate(animation),
-                      child: ScaleTransition(scale: animation, child: child),
+            button: canRoll,
+            label: face == null ? '${player.name} dice, roll' : 'Dice shows $face',
+            child: GestureDetector(
+              onTap: canRoll ? widget.controller.rollDice : null,
+              child: AnimatedBuilder(
+                animation: _spin,
+                builder: (context, _) {
+                  final rollingFace = widget.controller.rolling && isCurrent
+                      ? (_spin.value * 18).floor() % 6 + 1
+                      : face ?? 1;
+                  return Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.identity()
+                      ..setEntry(3, 2, .0015)
+                      ..rotateY(_spin.value * math.pi * 8)
+                      ..rotateZ(_spin.value * math.pi * 4),
+                    child: Container(
+                      width: 43,
+                      height: 43,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(13),
+                        border: Border.all(
+                          color: color.withValues(alpha: .65),
+                          width: 1.4,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: color.withValues(alpha: .18),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: CustomPaint(
+                        painter: _DiceFacePainter(
+                          face: rollingFace,
+                          pipColor: color,
+                        ),
+                      ),
                     ),
-                    child: Text(
-                      hasRolled ? '${controller.rolled}' : '🎲',
-                      key: ValueKey(controller.rolled),
-                      style: TextStyle(
-                          fontSize: hasRolled ? 30 : 27,
-                          fontWeight: FontWeight.bold,
-                          color: teamColor),
-                    ),
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),
-          FilledButton(
-            onPressed: controller.busy ||
-                    state.currentPlayer.isAi ||
-                    state.isPaused ||
-                    hasRolled
-                ? null
-                : controller.rollDice,
-            style: FilledButton.styleFrom(
-                backgroundColor: teamColor,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14)),
-            child: const Text('ROLL'),
-          ),
         ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _spin.dispose();
+    super.dispose();
+  }
+}
+
+class _DiceFacePainter extends CustomPainter {
+  const _DiceFacePainter({required this.face, required this.pipColor});
+
+  final int face;
+  final Color pipColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = pipColor;
+    final radius = size.width * .075;
+    final left = size.width * .27;
+    final middle = size.width * .5;
+    final right = size.width * .73;
+    final top = size.height * .27;
+    final center = size.height * .5;
+    final bottom = size.height * .73;
+    final pips = switch (face) {
+      1 => [(middle, center)],
+      2 => [(left, top), (right, bottom)],
+      3 => [(left, top), (middle, center), (right, bottom)],
+      4 => [(left, top), (right, top), (left, bottom), (right, bottom)],
+      5 => [
+          (left, top),
+          (right, top),
+          (middle, center),
+          (left, bottom),
+          (right, bottom),
+        ],
+      _ => [
+          (left, top),
+          (right, top),
+          (left, center),
+          (right, center),
+          (left, bottom),
+          (right, bottom),
+        ],
+    };
+    for (final (x, y) in pips) {
+      canvas.drawCircle(Offset(x, y), radius, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DiceFacePainter oldDelegate) =>
+      oldDelegate.face != face || oldDelegate.pipColor != pipColor;
+}
+
+class _TurnMessage extends StatelessWidget {
+  const _TurnMessage({required this.state, required this.controller});
+
+  final GameState state;
+  final GameController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final message = controller.lastMessage ??
+        (state.currentPlayer.isAi
+            ? 'The computer is taking its turn'
+            : controller.rolling
+                ? 'Rolling the dice…'
+                : controller.rolled != null
+                    ? 'Tap one of your glowing tokens'
+                    : 'Tap your dice to roll');
+    final color = Color(teamColors[state.currentPlayer.team]!.value);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        child: Container(
+          key: ValueKey(message),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: .08),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                controller.rolling ? Icons.casino_rounded : Icons.touch_app,
+                size: 16,
+                color: color,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  message,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: color,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

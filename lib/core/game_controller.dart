@@ -30,12 +30,14 @@ class GameController extends ChangeNotifier {
   GameSettings settings;
   GameState? state;
   bool busy = false;
+  bool rolling = false;
   int? rolled;
   List<int> legalTokens = const [];
   String? lastMessage;
   Timer? _aiTimer;
   Timer? _aiMoveTimer;
   Map<Team, List<Token>>? visualTokens;
+  bool _disposed = false;
 
   void startNewGame({
     required int players,
@@ -70,6 +72,7 @@ class GameController extends ChangeNotifier {
     legalTokens = const [];
     lastMessage = null;
     visualTokens = null;
+    rolling = false;
     _aiTimer?.cancel();
     _aiMoveTimer?.cancel();
     busy = false;
@@ -96,15 +99,37 @@ class GameController extends ChangeNotifier {
         game.isComplete ||
         game.isPaused ||
         busy ||
+        rolling ||
         rolled != null ||
         game.currentPlayer.isAi) {
       return;
     }
+    unawaited(_rollWithAnimation());
+  }
+
+  Future<void> _rollWithAnimation() async {
+    final game = state;
+    if (game == null ||
+        game.isComplete ||
+        game.isPaused ||
+        busy ||
+        rolling ||
+        rolled != null) {
+      return;
+    }
+    rolling = true;
+    notifyListeners();
+    await Future<void>.delayed(const Duration(milliseconds: 820));
+    if (_disposed || state != game || game.isPaused || game.isComplete) {
+      return;
+    }
+    rolling = false;
     _roll();
   }
 
   void _roll() {
     final game = state!;
+    rolling = false;
     final value = _dice.roll();
     if (LudoRules.registerRoll(game, value,
         penalizeThreeSixes: settings.penalizeThreeSixes)) {
@@ -212,7 +237,7 @@ class GameController extends ChangeNotifier {
     _aiTimer = Timer(const Duration(milliseconds: 650), () {
       if (state != game || game.isPaused || game.isComplete) return;
       if (rolled == null) {
-        _roll();
+        unawaited(_rollWithAnimation());
         return;
       }
       if (legalTokens.isEmpty) return;
@@ -250,6 +275,7 @@ class GameController extends ChangeNotifier {
     _aiTimer?.cancel();
     _aiMoveTimer?.cancel();
     if (state!.isPaused) {
+      rolling = false;
       busy = false;
       visualTokens = null;
     }
@@ -263,6 +289,7 @@ class GameController extends ChangeNotifier {
     _aiMoveTimer?.cancel();
     state = null;
     busy = false;
+    rolling = false;
     visualTokens = null;
     rolled = null;
     legalTokens = const [];
@@ -282,6 +309,7 @@ class GameController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _aiTimer?.cancel();
     _aiMoveTimer?.cancel();
     unawaited(_audio.dispose());
